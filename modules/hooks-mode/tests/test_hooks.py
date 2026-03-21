@@ -349,41 +349,54 @@ class TestGetActiveModeIsPureLookup:
     def test_get_active_mode_no_side_effects_with_active_mode(
         self, tmp_path: Path
     ) -> None:
-        """_get_active_mode() must NOT write require_approval_tools to session_state."""
+        """_get_active_mode() must NOT register require_approval_tools as a capability."""
         modes_dir = tmp_path / "modes"
         modes_dir.mkdir()
         _create_mode_file(modes_dir, "plan")
 
         coordinator = _make_coordinator(active_mode="plan")
-        # Ensure require_approval_tools is absent so we can detect if it gets set
-        coordinator.session_state.pop("require_approval_tools", None)
 
         discovery = ModeDiscovery(search_paths=[modes_dir])
         hooks = ModeHooks(coordinator, discovery)
 
+        # Reset call tracking so we can detect any unexpected register_capability calls
+        coordinator.register_capability.reset_mock()
+
         hooks._get_active_mode()
 
-        assert "require_approval_tools" not in coordinator.session_state, (
-            "_get_active_mode() must not write 'require_approval_tools' to session_state; "
+        # _get_active_mode() must not call register_capability — it is a pure lookup
+        registered_keys = [
+            c.args[0]
+            for c in coordinator.register_capability.call_args_list
+        ]
+        assert "require_approval_tools" not in registered_keys, (
+            "_get_active_mode() must not register 'require_approval_tools' as a capability; "
             "this side-effect is handled by the approval callback registered in mount()"
         )
 
     def test_get_active_mode_no_side_effects_without_active_mode(self) -> None:
-        """_get_active_mode() must NOT write require_approval_tools when no mode is active."""
+        """_get_active_mode() must NOT register require_approval_tools when no mode is active."""
         coordinator = _make_coordinator(active_mode=None)
-        coordinator.session_state.pop("require_approval_tools", None)
 
         discovery = ModeDiscovery(search_paths=[])
         hooks = ModeHooks(coordinator, discovery)
 
+        # Reset call tracking so we can detect any unexpected register_capability calls
+        coordinator.register_capability.reset_mock()
+
         hooks._get_active_mode()
 
-        assert "require_approval_tools" not in coordinator.session_state, (
-            "_get_active_mode() must not write 'require_approval_tools' when no mode is active"
+        # _get_active_mode() must not call register_capability — it is a pure lookup
+        registered_keys = [
+            c.args[0]
+            for c in coordinator.register_capability.call_args_list
+        ]
+        assert "require_approval_tools" not in registered_keys, (
+            "_get_active_mode() must not register 'require_approval_tools' when no mode is active"
         )
 
     def test_get_active_mode_returns_none_when_no_active_mode(self) -> None:
-        """_get_active_mode() returns None when session_state has no active_mode."""
+        """_get_active_mode() returns None when no active_mode capability is set."""
         coordinator = _make_coordinator(active_mode=None)
         discovery = ModeDiscovery(search_paths=[])
         hooks = ModeHooks(coordinator, discovery)
@@ -473,21 +486,22 @@ class TestMountInitializesActiveModeViaCapability:
     async def test_mount_no_session_state_init_for_active_mode(
         self, tmp_path: Path
     ) -> None:
-        """mount() must not add active_mode to session_state during initialization."""
+        """mount() must initialize active_mode via register_capability, not session_state."""
         modes_dir = tmp_path / "modes"
         modes_dir.mkdir()
         _create_mode_file(modes_dir, "plan")
 
         coordinator = _make_coordinator()
-        # Capture the initial session_state to verify mount() doesn't mutate it
-        initial_session_state = dict(coordinator.session_state)
 
         from amplifier_module_hooks_mode import mount
 
         await mount(coordinator, {"search_paths": [str(modes_dir)]})
 
-        # mount() must NOT add 'active_mode' to session_state
-        assert coordinator.session_state == initial_session_state, (
-            "mount() must not add 'active_mode' to session_state; "
-            "use register_capability('modes.active_mode', None) instead"
+        # mount() must use register_capability for active_mode, not session_state.
+        # Verify the capability path was used (not session_state mutation).
+        calls = coordinator.register_capability.call_args_list
+        active_mode_calls = [c for c in calls if c.args[0] == "modes.active_mode"]
+        assert len(active_mode_calls) == 1, (
+            "mount() must initialize 'modes.active_mode' via register_capability, "
+            "not via session_state; exactly one register_capability call expected"
         )
