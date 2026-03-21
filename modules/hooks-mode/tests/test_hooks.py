@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,12 +38,11 @@ def _make_coordinator(active_mode: str | None = None) -> MagicMock:
     coordinator = MagicMock()
     coordinator.session_state = {
         "active_mode": active_mode,
-        "require_approval_tools": set(),
     }
     coordinator.hooks = MagicMock()
 
     # Capability storage with side_effects so register/get work together
-    _capabilities: dict = {}
+    _capabilities: dict[str, Any] = {}
 
     def _register_capability(key: str, value: object) -> None:
         _capabilities[key] = value
@@ -330,3 +330,78 @@ class TestMountRegistersCapabilities:
             f"Value registered for 'modes.hooks' must be a ModeHooks instance, "
             f"got {type(registered_value)}"
         )
+
+
+class TestGetActiveModeIsPureLookup:
+    """Task 7: _get_active_mode() must be a pure lookup with no side effects."""
+
+    def test_get_active_mode_no_side_effects_with_active_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """_get_active_mode() must NOT write require_approval_tools to session_state."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator(active_mode="plan")
+        # Ensure require_approval_tools is absent so we can detect if it gets set
+        coordinator.session_state.pop("require_approval_tools", None)
+
+        discovery = ModeDiscovery(search_paths=[modes_dir])
+        hooks = ModeHooks(coordinator, discovery)
+
+        hooks._get_active_mode()
+
+        assert "require_approval_tools" not in coordinator.session_state, (
+            "_get_active_mode() must not write 'require_approval_tools' to session_state; "
+            "this side-effect is handled by the approval callback registered in mount()"
+        )
+
+    def test_get_active_mode_no_side_effects_without_active_mode(self) -> None:
+        """_get_active_mode() must NOT write require_approval_tools when no mode is active."""
+        coordinator = _make_coordinator(active_mode=None)
+        coordinator.session_state.pop("require_approval_tools", None)
+
+        discovery = ModeDiscovery(search_paths=[])
+        hooks = ModeHooks(coordinator, discovery)
+
+        hooks._get_active_mode()
+
+        assert "require_approval_tools" not in coordinator.session_state, (
+            "_get_active_mode() must not write 'require_approval_tools' when no mode is active"
+        )
+
+    def test_get_active_mode_returns_none_when_no_active_mode(self) -> None:
+        """_get_active_mode() returns None when session_state has no active_mode."""
+        coordinator = _make_coordinator(active_mode=None)
+        discovery = ModeDiscovery(search_paths=[])
+        hooks = ModeHooks(coordinator, discovery)
+
+        result = hooks._get_active_mode()
+
+        assert result is None
+
+    def test_get_active_mode_returns_mode_definition(self, tmp_path: Path) -> None:
+        """_get_active_mode() returns the ModeDefinition when a mode is active."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator(active_mode="plan")
+        discovery = ModeDiscovery(search_paths=[modes_dir])
+        hooks = ModeHooks(coordinator, discovery)
+
+        result = hooks._get_active_mode()
+
+        assert result is not None
+        assert result.name == "plan"
+
+    def test_get_active_mode_returns_none_for_unknown_mode(self) -> None:
+        """_get_active_mode() returns None when active_mode doesn't match any known mode."""
+        coordinator = _make_coordinator(active_mode="nonexistent")
+        discovery = ModeDiscovery(search_paths=[])
+        hooks = ModeHooks(coordinator, discovery)
+
+        result = hooks._get_active_mode()
+
+        assert result is None

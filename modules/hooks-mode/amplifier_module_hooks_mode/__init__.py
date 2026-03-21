@@ -381,26 +381,15 @@ class ModeHooks:
     def _get_active_mode(self) -> ModeDefinition | None:
         """Get the currently active mode definition.
 
-        Updates session_state["require_approval_tools"] for approval hook integration.
-        This uses the generic key that approval hook respects, allowing modes to
-        drive approval policy without the approval hook knowing about modes.
+        Pure lookup: reads session_state["active_mode"] and returns the
+        corresponding ModeDefinition, or None if no mode is active.
+        Approval policy is driven by the approval.needs_check callback
+        registered in mount() — no side effects here.
         """
         mode_name = self.coordinator.session_state.get("active_mode")
         if not mode_name:
-            # Clear approval requirements when no mode is active
-            self.coordinator.session_state["require_approval_tools"] = set()
             return None
-
-        mode = self.discovery.find(mode_name)
-        if mode:
-            # Populate generic approval key - approval hook checks this
-            self.coordinator.session_state["require_approval_tools"] = set(
-                mode.confirm_tools
-            )
-        else:
-            self.coordinator.session_state["require_approval_tools"] = set()
-
-        return mode
+        return self.discovery.find(mode_name)
 
     def _resolve_mentions(self, content: str) -> str:
         """Resolve @namespace:path mentions in mode context content.
@@ -497,8 +486,7 @@ class ModeHooks:
                 reason=f"Mode '{mode.name}': '{tool_name}' is blocked. {mode.description}",
             )
 
-        # Confirm tools: let approval hook handle it
-        # (mode_confirm_tools is already set in session state by _get_active_mode)
+        # Confirm tools: let approval hook handle it via approval.needs_check callback
         if tool_name in mode.confirm_tools:
             return HookResult(action="continue")
 
