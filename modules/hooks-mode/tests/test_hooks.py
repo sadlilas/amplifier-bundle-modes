@@ -224,6 +224,7 @@ class TestModeActiveSignal:
 
         assert result.action == "inject_context"
         content = result.context_injection
+        assert content is not None
         assert "MODE ACTIVE: plan" in content
 
     @pytest.mark.asyncio
@@ -239,6 +240,7 @@ class TestModeActiveSignal:
 
         result = await hooks.handle_provider_request("provider:request", {})
         content = result.context_injection
+        assert content is not None
         assert "do NOT call" in content or "do not call" in content.lower()
         assert "brainstorm" in content
 
@@ -255,6 +257,7 @@ class TestModeActiveSignal:
 
         result = await hooks.handle_provider_request("provider:request", {})
         content = result.context_injection
+        assert content is not None
         assert "You are in plan mode." in content
 
     @pytest.mark.asyncio
@@ -272,6 +275,7 @@ class TestModeActiveSignal:
 
         result = await hooks.handle_provider_request("provider:request", {})
         content = result.context_injection
+        assert content is not None
         assert content.startswith('<system-reminder source="mode-plan">')
         assert content.rstrip().endswith("</system-reminder>")
 
