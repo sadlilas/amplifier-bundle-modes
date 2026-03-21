@@ -34,15 +34,22 @@ def _create_mode_file(path: Path, name: str, description: str = "") -> Path:
 
 
 def _make_coordinator(active_mode: str | None = None) -> MagicMock:
-    """Create a mock coordinator with session_state and capability storage."""
+    """Create a mock coordinator with capability storage.
+
+    active_mode is stored in capabilities as 'modes.active_mode',
+    not in session_state (which is now capabilities-only).
+    session_state is kept as an empty dict for tests that verify
+    session_state is not mutated.
+    """
     coordinator = MagicMock()
-    coordinator.session_state = {
-        "active_mode": active_mode,
-    }
+    coordinator.session_state = {}
     coordinator.hooks = MagicMock()
 
     # Capability storage with side_effects so register/get work together
+    # active_mode is stored here as 'modes.active_mode' (not in session_state)
     _capabilities: dict[str, Any] = {}
+    if active_mode is not None:
+        _capabilities["modes.active_mode"] = active_mode
 
     def _register_capability(key: str, value: object) -> None:
         _capabilities[key] = value

@@ -45,14 +45,23 @@ def _create_mode_file(
 
 
 def _make_coordinator(active_mode: str | None = None) -> MagicMock:
-    """Create a mock coordinator with session_state."""
+    """Create a mock coordinator with capability storage.
+
+    active_mode is stored in capabilities as 'modes.active_mode',
+    not in session_state.
+    """
     coordinator = MagicMock()
-    coordinator.session_state = {
-        "active_mode": active_mode,
-        "require_approval_tools": set(),
-    }
     coordinator.hooks = MagicMock()
-    coordinator.get_capability = MagicMock(return_value=None)
+
+    # Capability storage — active_mode lives here as caps["modes.active_mode"]
+    _capabilities: dict = {}
+    if active_mode is not None:
+        _capabilities["modes.active_mode"] = active_mode
+
+    def _get_capability(key: str) -> object:
+        return _capabilities.get(key)
+
+    coordinator.get_capability = MagicMock(side_effect=_get_capability)
     return coordinator
 
 
@@ -82,8 +91,12 @@ class TestMentionResolution:
         coordinator = _make_coordinator(active_mode="debug")
         resolver = MagicMock()
         resolver.resolve = MagicMock(return_value=str(context_file))
+        # Override get_capability: handle both modes.active_mode and mention_resolver
+        _caps = {"modes.active_mode": "debug"}
         coordinator.get_capability = MagicMock(
-            side_effect=lambda key: resolver if key == "mention_resolver" else None
+            side_effect=lambda key: (
+                resolver if key == "mention_resolver" else _caps.get(key)
+            )
         )
 
         discovery = ModeDiscovery(search_paths=[modes_dir])
@@ -132,9 +145,16 @@ class TestMentionResolution:
         assert "Think before you act." in content, (
             "Mode body content must be injected unchanged when there are no @-mentions"
         )
-        # When there are no @-mentions, get_capability must never be called —
-        # the early-return optimisation avoids touching the resolver entirely
-        coordinator.get_capability.assert_not_called()
+        # When there are no @-mentions, the mention_resolver capability must never be
+        # queried — the early-return optimisation avoids touching the resolver entirely.
+        # (get_capability IS called for modes.active_mode, but not for mention_resolver)
+        called_keys = [
+            call.args[0] for call in coordinator.get_capability.call_args_list
+        ]
+        assert "mention_resolver" not in called_keys, (
+            "get_capability('mention_resolver') must not be called when mode body "
+            "has no @-mentions; early-return optimisation should skip the resolver lookup"
+        )
 
     @pytest.mark.asyncio
     async def test_invalid_mention_graceful_error(self, tmp_path: Path) -> None:
@@ -156,8 +176,12 @@ class TestMentionResolution:
         resolver = MagicMock()
         # Resolver returns None for an unknown path
         resolver.resolve = MagicMock(return_value=None)
+        # Override get_capability: handle both modes.active_mode and mention_resolver
+        _caps = {"modes.active_mode": "broken"}
         coordinator.get_capability = MagicMock(
-            side_effect=lambda key: resolver if key == "mention_resolver" else None
+            side_effect=lambda key: (
+                resolver if key == "mention_resolver" else _caps.get(key)
+            )
         )
 
         discovery = ModeDiscovery(search_paths=[modes_dir])

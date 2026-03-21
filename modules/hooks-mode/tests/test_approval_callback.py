@@ -17,15 +17,17 @@ from amplifier_module_hooks_mode import mount
 
 
 def _make_coordinator() -> MagicMock:
-    """Create a mock coordinator with session_state and capability storage."""
+    """Create a mock coordinator with capability storage.
+
+    active_mode is stored in capabilities as 'modes.active_mode',
+    not in session_state. Use coordinator.register_capability('modes.active_mode', ...)
+    to set the active mode in tests.
+    """
     coordinator = MagicMock()
-    coordinator.session_state = {
-        "active_mode": None,
-        "require_approval_tools": set(),
-    }
     coordinator.hooks = MagicMock()
 
     # Capability storage with side_effects so register/get work together
+    # active_mode lives here as caps["modes.active_mode"] only
     _capabilities: dict = {}
 
     def _register_capability(key: str, value: object) -> None:
@@ -121,7 +123,7 @@ class TestApprovalNeedsCheckCallback:
         _create_mode_file_with_confirm_raw(modes_dir, "careful", ["bash", "write_file"])
 
         coordinator = _make_coordinator()
-        coordinator.session_state["active_mode"] = "careful"
+        coordinator.register_capability("modes.active_mode", "careful")
 
         await mount(coordinator, {"search_paths": [str(modes_dir)]})
 
@@ -141,7 +143,7 @@ class TestApprovalNeedsCheckCallback:
         _create_mode_file_with_confirm_raw(modes_dir, "careful", ["bash"])
 
         coordinator = _make_coordinator()
-        coordinator.session_state["active_mode"] = "careful"
+        coordinator.register_capability("modes.active_mode", "careful")
 
         await mount(coordinator, {"search_paths": [str(modes_dir)]})
 
@@ -180,8 +182,8 @@ class TestApprovalNeedsCheckCallback:
     ) -> None:
         """Callback reflects the CURRENT active mode, not a snapshot taken at mount time.
 
-        This verifies that the callback is a live closure reading from session_state,
-        not a value captured at mount() time.
+        This verifies that the callback is a live closure reading from the
+        modes.active_mode capability, not a value captured at mount() time.
         """
         modes_dir = tmp_path / "modes"
         modes_dir.mkdir()
@@ -205,8 +207,7 @@ class TestApprovalNeedsCheckCallback:
         )
 
         coordinator = _make_coordinator()
-        # Start with no mode active
-        coordinator.session_state["active_mode"] = None
+        # Start with no mode active (capabilities default to None)
 
         await mount(coordinator, {"search_paths": [str(modes_dir)]})
 
@@ -218,14 +219,14 @@ class TestApprovalNeedsCheckCallback:
         )
 
         # Activate strict mode — bash is now in confirm_tools
-        coordinator.session_state["active_mode"] = "strict"
+        coordinator.register_capability("modes.active_mode", "strict")
         assert callback("bash") is True, (
             "callback('bash') must return True after activating 'strict' mode "
             "which has 'bash' in confirm_tools"
         )
 
         # Switch to safe mode — bash is no longer in confirm_tools
-        coordinator.session_state["active_mode"] = "safe"
+        coordinator.register_capability("modes.active_mode", "safe")
         assert callback("bash") is False, (
             "callback('bash') must return False after switching to 'safe' mode "
             "which has no confirm_tools"

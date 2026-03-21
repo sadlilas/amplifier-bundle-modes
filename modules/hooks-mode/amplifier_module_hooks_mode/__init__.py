@@ -381,12 +381,12 @@ class ModeHooks:
     def _get_active_mode(self) -> ModeDefinition | None:
         """Get the currently active mode definition.
 
-        Pure lookup: reads session_state["active_mode"] and returns the
+        Pure lookup: reads the modes.active_mode capability and returns the
         corresponding ModeDefinition, or None if no mode is active.
         Approval policy is driven by the approval.needs_check callback
         registered in mount() — no side effects here.
         """
-        mode_name = self.coordinator.session_state.get("active_mode")
+        mode_name = self.coordinator.get_capability("modes.active_mode")
         if not mode_name:
             return None
         return self.discovery.find(mode_name)
@@ -612,7 +612,7 @@ async def mount(
     coordinator.register_capability("modes.hooks", hooks)
 
     # Register approval.needs_check capability
-    # This closure is a live callback — it reads session_state at call time,
+    # This closure is a live callback — it reads modes.active_mode capability at call time,
     # so it reflects the current mode rather than a snapshot taken at mount().
     def _needs_mode_approval(tool_name: str) -> bool:
         mode = hooks._get_active_mode()
