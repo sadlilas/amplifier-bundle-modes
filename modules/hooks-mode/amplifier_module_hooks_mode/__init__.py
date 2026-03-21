@@ -533,12 +533,9 @@ async def mount(
     """
     config = config or {}
 
-    # Initialize session state for modes
-    if not hasattr(coordinator, "session_state"):
-        coordinator.session_state = {}
-
-    if "active_mode" not in coordinator.session_state:
-        coordinator.session_state["active_mode"] = None
+    # Initialize active_mode capability if not already set
+    if coordinator.get_capability("modes.active_mode") is None:
+        coordinator.register_capability("modes.active_mode", None)
 
     # Get working_dir from capability (for server deployments where cwd is wrong)
     working_dir_str = coordinator.get_capability("session.working_dir")

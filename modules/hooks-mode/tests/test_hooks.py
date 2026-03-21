@@ -405,3 +405,78 @@ class TestGetActiveModeIsPureLookup:
         result = hooks._get_active_mode()
 
         assert result is None
+
+
+class TestMountInitializesActiveModeViaCapability:
+    """Task 9: mount() must initialize active_mode via register_capability, not session_state."""
+
+    @pytest.mark.asyncio
+    async def test_mount_registers_active_mode_capability_as_none(
+        self, tmp_path: Path
+    ) -> None:
+        """mount() must call register_capability('modes.active_mode', None) on first mount."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator()
+
+        from amplifier_module_hooks_mode import mount
+
+        await mount(coordinator, {"search_paths": [str(modes_dir)]})
+
+        calls = coordinator.register_capability.call_args_list
+        active_mode_calls = [c for c in calls if c.args[0] == "modes.active_mode"]
+        assert len(active_mode_calls) == 1, (
+            "mount() must call register_capability exactly once with key 'modes.active_mode'"
+        )
+        assert active_mode_calls[0].args[1] is None, (
+            "mount() must register 'modes.active_mode' with None as the initial value"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mount_skips_register_when_active_mode_capability_already_set(
+        self, tmp_path: Path
+    ) -> None:
+        """mount() must NOT overwrite an existing 'modes.active_mode' capability."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator()
+        # Pre-set the capability so get_capability("modes.active_mode") returns non-None
+        coordinator.register_capability("modes.active_mode", "plan")
+        coordinator.register_capability.reset_mock()
+
+        from amplifier_module_hooks_mode import mount
+
+        await mount(coordinator, {"search_paths": [str(modes_dir)]})
+
+        calls = coordinator.register_capability.call_args_list
+        active_mode_calls = [c for c in calls if c.args[0] == "modes.active_mode"]
+        assert len(active_mode_calls) == 0, (
+            "mount() must NOT call register_capability('modes.active_mode', ...) when already set"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mount_no_session_state_init_for_active_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """mount() must not add active_mode to session_state during initialization."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator()
+        # Capture the initial session_state to verify mount() doesn't mutate it
+        initial_session_state = dict(coordinator.session_state)
+
+        from amplifier_module_hooks_mode import mount
+
+        await mount(coordinator, {"search_paths": [str(modes_dir)]})
+
+        # mount() must NOT add 'active_mode' to session_state
+        assert coordinator.session_state == initial_session_state, (
+            "mount() must not add 'active_mode' to session_state; "
+            "use register_capability('modes.active_mode', None) instead"
+        )
