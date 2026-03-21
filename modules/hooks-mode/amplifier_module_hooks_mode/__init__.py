@@ -603,8 +603,8 @@ async def mount(
     for p in immediate_paths:
         discovery.add_search_path(p, source="config")
 
-    # Store discovery in session state for app access
-    coordinator.session_state["mode_discovery"] = discovery
+    # Register discovery as a capability for app access
+    coordinator.register_capability("modes.discovery", discovery)
 
     # Parse infrastructure_tools config
     raw_infra = config.get("infrastructure_tools", None)
@@ -623,8 +623,8 @@ async def mount(
     # Create hooks instance
     hooks = ModeHooks(coordinator, discovery, infrastructure_tools=infrastructure_tools)
 
-    # Store hooks in session state for mode switching (to reset warnings)
-    coordinator.session_state["mode_hooks"] = hooks
+    # Register hooks as a capability for mode switching (to reset warnings)
+    coordinator.register_capability("modes.hooks", hooks)
 
     # Register hooks
     coordinator.hooks.register(
@@ -635,7 +635,7 @@ async def mount(
     )
 
     # Priority -20 ensures modes hook runs BEFORE approval hook (-10)
-    # This allows modes to set session_state["require_approval_tools"]
+    # This allows modes to set the approval.needs_check callback
     # before the approval hook checks it
     coordinator.hooks.register(
         "tool:pre",

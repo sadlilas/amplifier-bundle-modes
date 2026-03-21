@@ -33,14 +33,25 @@ def _create_mode_file(path: Path, name: str, description: str = "") -> Path:
 
 
 def _make_coordinator(active_mode: str | None = None) -> MagicMock:
-    """Create a mock coordinator with session_state."""
+    """Create a mock coordinator with session_state and capability storage."""
     coordinator = MagicMock()
     coordinator.session_state = {
         "active_mode": active_mode,
         "require_approval_tools": set(),
     }
     coordinator.hooks = MagicMock()
-    coordinator.get_capability = MagicMock(return_value=None)
+
+    # Capability storage with side_effects so register/get work together
+    _capabilities: dict = {}
+
+    def _register_capability(key: str, value: object) -> None:
+        _capabilities[key] = value
+
+    def _get_capability(key: str, default: object = None) -> object:
+        return _capabilities.get(key, default)
+
+    coordinator.register_capability = MagicMock(side_effect=_register_capability)
+    coordinator.get_capability = MagicMock(side_effect=_get_capability)
     return coordinator
 
 
@@ -263,3 +274,59 @@ class TestModeActiveSignal:
         content = result.context_injection
         assert content.startswith('<system-reminder source="mode-plan">')
         assert content.rstrip().endswith("</system-reminder>")
+
+
+class TestMountRegistersCapabilities:
+    """mount() must register modes.discovery and modes.hooks via register_capability."""
+
+    @pytest.mark.asyncio
+    async def test_mount_registers_modes_discovery(self, tmp_path: Path) -> None:
+        """mount() must call register_capability('modes.discovery', discovery_instance)."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator()
+
+        from amplifier_module_hooks_mode import mount
+
+        await mount(coordinator, {"search_paths": [str(modes_dir)]})
+
+        calls = coordinator.register_capability.call_args_list
+        discovery_calls = [c for c in calls if c.args[0] == "modes.discovery"]
+        assert len(discovery_calls) == 1, (
+            "mount() must call register_capability exactly once with key 'modes.discovery'"
+        )
+        registered_value = discovery_calls[0].args[1]
+        from amplifier_module_hooks_mode import ModeDiscovery
+
+        assert isinstance(registered_value, ModeDiscovery), (
+            f"Value registered for 'modes.discovery' must be a ModeDiscovery instance, "
+            f"got {type(registered_value)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mount_registers_modes_hooks(self, tmp_path: Path) -> None:
+        """mount() must call register_capability('modes.hooks', hooks_instance)."""
+        modes_dir = tmp_path / "modes"
+        modes_dir.mkdir()
+        _create_mode_file(modes_dir, "plan")
+
+        coordinator = _make_coordinator()
+
+        from amplifier_module_hooks_mode import mount
+
+        await mount(coordinator, {"search_paths": [str(modes_dir)]})
+
+        calls = coordinator.register_capability.call_args_list
+        hooks_calls = [c for c in calls if c.args[0] == "modes.hooks"]
+        assert len(hooks_calls) == 1, (
+            "mount() must call register_capability exactly once with key 'modes.hooks'"
+        )
+        registered_value = hooks_calls[0].args[1]
+        from amplifier_module_hooks_mode import ModeHooks
+
+        assert isinstance(registered_value, ModeHooks), (
+            f"Value registered for 'modes.hooks' must be a ModeHooks instance, "
+            f"got {type(registered_value)}"
+        )
