@@ -626,6 +626,17 @@ async def mount(
     # Register hooks as a capability for mode switching (to reset warnings)
     coordinator.register_capability("modes.hooks", hooks)
 
+    # Register approval.needs_check capability
+    # This closure is a live callback — it reads session_state at call time,
+    # so it reflects the current mode rather than a snapshot taken at mount().
+    def _needs_mode_approval(tool_name: str) -> bool:
+        mode = hooks._get_active_mode()
+        if mode is None:
+            return False
+        return tool_name in (mode.confirm_tools or [])
+
+    coordinator.register_capability("approval.needs_check", _needs_mode_approval)
+
     # Register hooks
     coordinator.hooks.register(
         "provider:request",
